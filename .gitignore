@@ -5,3 +5,7 @@ __pycache__/
 .env.*
 !.env.example
 data/
+
+# 프론트엔드 의존성 및 빌드 결과
+frontend/node_modules/
+frontend/dist/
