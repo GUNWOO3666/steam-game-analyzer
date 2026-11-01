@@ -12,7 +12,11 @@ from urllib.request import urlopen
 
 
 class SteamError(Exception):
-    """A user-facing Steam API error."""
+    """A user-facing Steam API error with an HTTP status for API consumers."""
+
+    def __init__(self, message: str, status_code: int = 502):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def parse_profile(value: str) -> tuple[str, str]:
@@ -24,13 +28,13 @@ def parse_profile(value: str) -> tuple[str, str]:
     if (parsed.scheme not in ("http", "https")
             or parsed.netloc.lower() != "steamcommunity.com"
             or len(parts) != 2):
-        raise SteamError("SteamID64 또는 https://steamcommunity.com/id/이름 형식의 URL을 입력하세요.")
+        raise SteamError("SteamID64 또는 https://steamcommunity.com/id/이름 형식의 URL을 입력하세요.", 400)
     kind, identifier = parts
     if kind == "profiles" and re.fullmatch(r"[0-9]{17}", identifier):
         return "steamid", identifier
     if kind == "id" and re.fullmatch(r"[A-Za-z0-9_-]+", identifier):
         return "vanity", identifier
-    raise SteamError("올바른 Steam 프로필 URL이 아닙니다.")
+    raise SteamError("올바른 Steam 프로필 URL이 아닙니다.", 400)
 
 
 class SteamClient:
@@ -61,11 +65,11 @@ class SteamClient:
             resolved = self.request("ISteamUser/ResolveVanityURL", vanityurl=steamid)
             steamid = resolved.get("steamid", "")
             if resolved.get("success") != 1 or not re.fullmatch(r"[0-9]{17}", steamid):
-                raise SteamError("해당 Steam 프로필을 찾을 수 없습니다.")
+                raise SteamError("해당 Steam 프로필을 찾을 수 없습니다.", 404)
         library = self.request("IPlayerService/GetOwnedGames", steamid=steamid,
                                include_appinfo=1, include_played_free_games=1)
         if "game_count" not in library:
-            raise SteamError("라이브러리를 조회할 수 없습니다. 프로필과 게임 세부 정보 공개 설정을 확인하세요.")
+            raise SteamError("라이브러리를 조회할 수 없습니다. 프로필과 게임 세부 정보 공개 설정을 확인하세요.", 403)
         games = library.get("games", [])
         if not isinstance(games, list) or library["game_count"] != len(games):
             raise SteamError("Steam 라이브러리 응답이 불완전합니다. 다시 시도하세요.")
