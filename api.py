@@ -1,6 +1,9 @@
 """로컬 실행: python -m uvicorn api:app --reload"""
 import os
 
+from pydantic import BaseModel, Field
+from genre_analyzer import GenreStore
+
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -27,7 +30,7 @@ app = FastAPI(
 async def validation_error(request: Request, exc: RequestValidationError):
     return JSONResponse(
         status_code=422,
-        content={"detail": "profile 입력값을 확인하세요. Steam 프로필 URL 또는 SteamID64를 1~2048자로 입력해야 합니다."},
+        content={"detail": "profile 입력값을 확인하세요. Steam 프로필 URL 또는 SteamID64를 1~2048자로 입력하세요. 장르 조회는 appids에 게임 번호를 1~20개 입력하세요."},
     )
 
 
@@ -75,3 +78,15 @@ def library(profile: str = Query(
         return SteamClient(key).get_library(profile)
     except SteamError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
+
+
+class GenreRequest(BaseModel):
+    appids: list[int] = Field(min_length=1, max_length=20)
+
+
+@app.post('/api/genres', tags=['라이브러리 분석'], summary='게임 장르 조회',
+          description='한 번에 최대 20개의 게임 장르를 조회합니다. 한국어 장르 정보를 7일간 캐시합니다. 조회 실패 게임은 unavailable로 반환합니다.')
+def genres(request: GenreRequest) -> dict:
+    if any(appid <= 0 or appid > 4294967295 for appid in request.appids):
+        raise HTTPException(status_code=400, detail='게임 번호는 유효한 양의 정수여야 합니다.')
+    return {'games': GenreStore().batch(request.appids)}
