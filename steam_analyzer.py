@@ -10,6 +10,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
 from urllib.request import urlopen
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
+
 
 class SteamError(Exception):
     """A user-facing Steam API error with an HTTP status for API consumers."""
