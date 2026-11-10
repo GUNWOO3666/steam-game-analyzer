@@ -3,10 +3,17 @@ import { createRoot } from 'react-dom/client';
 import './style.css';
 import { fetchGenres } from './genre-loader';
 
+
 type Game = { appid: number; name?: string; playtime_forever?: number };
 type Library = { steamid: string; games: Game[]; summary: { game_count: number; total_playtime_hours: number; unplayed_count: number; under_one_hour_count: number; top_games: Game[] } };
 const number = (value: number) => value.toLocaleString('ko-KR', { maximumFractionDigits: 1 });
 const minutes = (game: Game) => game.playtime_forever ?? 0;
+function CollapsiblePanel({ title, children }: { title: React.ReactNode; children: React.ReactNode }) {
+  return <details className="panel collapsible-panel">
+    <summary><h2>{title}</h2><span className="toggle-label"><span className="when-closed">펼쳐보기</span><span className="when-open">접어두기</span><span className="toggle-arrow" aria-hidden="true">⌄</span></span></summary>
+    <div className="collapsible-content">{children}</div>
+  </details>;
+}
 function App() {
   const genreRequest = useRef<AbortController | null>(null);
   const [pendingGenres, setPendingGenres] = useState<Game[]>([]);
@@ -96,6 +103,7 @@ function App() {
     return [...rows.values()].sort((a, b) => b.minutes - a.minutes);
   }, [data, metadata]);
   const summary = data?.summary;
+
   const top = summary?.top_games.filter(game => minutes(game) > 0).slice(0, 5) ?? [];
   return <div className="shell">
     <header><a className="brand" href="/">◈ <span>Steam Game Analyzer</span></a><span className="badge">라이브러리 분석 · 초기 버전</span></header>
@@ -109,13 +117,14 @@ function App() {
         <div className="section-heading"><h2>라이브러리 개요</h2><span className="muted">SteamID {data.steamid}</span></div>
         <section className="stats">{[['보유 게임', summary.game_count, '개'], ['총 플레이시간', summary.total_playtime_hours, '시간'], ['미실행 게임', summary.unplayed_count, '개'], ['1시간 미만 플레이', summary.under_one_hour_count, '개']].map(([label, value, unit]) => <article className="stat" key={label}><span>{label}</span><strong>{number(value as number)}<small>{unit}</small></strong></article>)}</section>
         <section className="panel"><div className="section-heading"><h2>가장 오래 함께한 게임</h2><span className="muted">누적 플레이시간 상위 5개</span></div>{top.length ? top.map((game, index) => <div className="top-game" key={game.appid}><span className="rank">0{index + 1}</span><div className="bar-label"><span>{game.name ?? `게임 ${game.appid}`}</span><div className="track"><div style={{width: `${minutes(game) / minutes(top[0]) * 100}%`}}/></div></div><strong>{number(minutes(game) / 60)}<small> 시간</small></strong></div>) : <p className="muted">아직 플레이한 게임이 없습니다.</p>}</section>
-        <section className="panel"><div className="section-heading"><h2>장르별 플레이 성향</h2><span className="muted" role="status">{genreProgress}</span></div>
+        <CollapsiblePanel title="장르별 플레이 성향"><p className="muted" role="status">{genreProgress}</p>
           {genreBusy && <button type="button" onClick={() => genreRequest.current?.abort()}>장르 조회 취소</button>}{!genreBusy && pendingGenres.length > 0 && <button type="button" onClick={() => void loadGenres(pendingGenres, metadata)}>실패·미조회 {pendingGenres.length}개 다시 조회</button>}{genreError && <p className="hint" role="alert">{genreError}</p>}
           {genreRows.map(row => <div className="top-game" key={row.genre}><div className="bar-label"><span>{row.genre} <small>· {row.count}개 게임</small></span><div className="track"><div style={{ width: `${genreRows[0]?.minutes ? row.minutes / genreRows[0].minutes * 100 : 0}%` }}/></div></div><strong>{number(row.minutes / 60)}<small> 시간</small></strong></div>)}
           {genreRows.length === 0 && <p className="muted">분석할 게임이 없습니다.</p>}
           <p className="hint">장르가 여러 개면 플레이시간을 균등 배분합니다. 게임 수는 각 장르에 중복 집계됩니다. 미조회·장르 정보가 없는 게임은 미분류입니다. 장르는 사용자 태그와 다르며 실제 취향을 단정하지 않습니다.</p>
-        </section>
-        <section className="panel"><div className="section-heading"><h2>전체 게임 <small>{games.length}개</small></h2><select aria-label="게임 정렬" value={sort} onChange={e => setSort(e.target.value)}><option value="time">플레이시간순</option><option value="name">이름순</option></select></div><div className="tools"><div className="tabs">{[['all', '전체'], ['unplayed', '미실행'], ['short', '1시간 미만']].map(([value, label]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} aria-pressed={filter === value}>{label}</button>)}</div><input aria-label="게임 이름 검색" placeholder="게임 이름 검색" value={search} onChange={e => setSearch(e.target.value)}/></div><div className="table-wrap"><table><thead><tr><th>게임</th><th>플레이 상태</th><th>누적 플레이시간</th></tr></thead><tbody>{games.map(game => <tr key={game.appid}><td><a href={`https://store.steampowered.com/app/${game.appid}/`} target="_blank" rel="noreferrer">{game.name ?? `게임 ${game.appid}`} ↗</a></td><td><span className={minutes(game) === 0 ? 'status unplayed' : 'status'}>{minutes(game) === 0 ? '미실행' : minutes(game) < 60 ? '1시간 미만' : '플레이 기록 있음'}</span></td><td>{number(minutes(game) / 60)} 시간</td></tr>)}</tbody></table>{games.length === 0 && <p className="no-results">조건에 맞는 게임이 없습니다.</p>}</div></section>
+        </CollapsiblePanel>
+
+        <CollapsiblePanel title={<>전체 게임 <small>{data.games.length}개</small></>}><div className="section-heading"><span className="muted">표시 중 {games.length}개</span><select aria-label="게임 정렬" value={sort} onChange={e => setSort(e.target.value)}><option value="time">플레이시간순</option><option value="name">이름순</option></select></div><div className="tools"><div className="tabs">{[['all', '전체'], ['unplayed', '미실행'], ['short', '1시간 미만']].map(([value, label]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} aria-pressed={filter === value}>{label}</button>)}</div><input aria-label="게임 이름 검색" placeholder="게임 이름 검색" value={search} onChange={e => setSearch(e.target.value)}/></div><div className="table-wrap"><table><thead><tr><th>게임</th><th>플레이 상태</th><th>누적 플레이시간</th></tr></thead><tbody>{games.map(game => <tr key={game.appid}><td><a href={`https://store.steampowered.com/app/${game.appid}/`} target="_blank" rel="noreferrer">{game.name ?? `게임 ${game.appid}`} ↗</a></td><td><span className={minutes(game) === 0 ? 'status unplayed' : 'status'}>{minutes(game) === 0 ? '미실행' : minutes(game) < 60 ? '1시간 미만' : '플레이 기록 있음'}</span></td><td>{number(minutes(game) / 60)} 시간</td></tr>)}</tbody></table>{games.length === 0 && <p className="no-results">조건에 맞는 게임이 없습니다.</p>}</div></CollapsiblePanel>
         <p className="hint">미실행은 0분, 1시간 미만은 1~59분 기준입니다. 실행시간에는 대기 시간이 포함될 수 있으며 완주 여부를 의미하지 않습니다.</p>
       </>}
     </main><footer>Steam Game Analyzer <span>나의 게임을 이해하는 첫걸음 · Steam 비공식 프로젝트</span></footer>
