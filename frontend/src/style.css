@@ -27,3 +27,8 @@
 .profile-played>div{display:flex;justify-content:space-between;gap:12px;font-size:14px}
 .profile-played progress{display:block;width:100%;height:10px;margin-top:10px;accent-color:#74dcc9}
 @media(max-width:700px){.profile-identity{gap:14px}.profile-avatar{width:70px;height:70px}.profile-details h2{font-size:22px}}
+
+.game-banner{flex:none;width:clamp(78px,17vw,180px);aspect-ratio:460/215;overflow:hidden;border-radius:7px;background:#253143}
+.game-banner img{width:100%;height:100%;object-fit:cover}
+.ranked-game .bar-label{overflow-wrap:anywhere}
+.ranked-game>strong{white-space:nowrap}

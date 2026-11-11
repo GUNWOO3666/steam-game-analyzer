@@ -2,7 +2,7 @@
 import os
 
 from pydantic import BaseModel, Field
-from genre_analyzer import GenreStore
+from genre_analyzer import GenreStore, fetch_banner
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -92,6 +92,16 @@ def player_profile(steamid: str) -> dict:
         return SteamClient(key).get_profile(steamid)
     except SteamError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
+
+
+@app.get('/api/games/{appid}/banner', tags=['라이브러리 분석'], summary='Steam 게임 배너 주소 조회')
+def game_banner(appid: int) -> dict:
+    if not 0 < appid <= 4294967295:
+        raise HTTPException(status_code=400, detail='게임 번호는 유효한 양의 정수여야 합니다.')
+    try:
+        return {'url': fetch_banner(appid)}
+    except (OSError, ValueError, TypeError, AttributeError):
+        raise HTTPException(status_code=502, detail='Steam 상점 배너 정보를 가져오지 못했습니다.') from None
 
 
 class GenreRequest(BaseModel):

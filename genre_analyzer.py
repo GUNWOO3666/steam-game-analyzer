@@ -5,20 +5,34 @@ import json
 from pathlib import Path
 import sqlite3
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import urlopen
 
 CACHE_PATH = Path(__file__).resolve().parent / 'data' / 'genres.sqlite3'
 
 
-def fetch_genres(appid: int) -> list[str]:
-    url = 'https://store.steampowered.com/api/appdetails?' + urlencode({'appids': appid, 'l': 'koreana', 'filters': 'genres'})
+def fetch_store_details(appid: int, **params) -> dict:
+    url = 'https://store.steampowered.com/api/appdetails?' + urlencode({'appids': appid, **params})
     with urlopen(url, timeout=8) as response:
         item = json.load(response).get(str(appid), {})
     if not item.get('success'):
         raise ValueError('상점 정보 없음')
-    genres = item.get('data', {}).get('genres', [])
+    return item.get('data', {})
+
+
+def fetch_genres(appid: int) -> list[str]:
+    genres = fetch_store_details(appid, l='koreana', filters='genres').get('genres', [])
     return sorted({genre['description'] for genre in genres if isinstance(genre.get('description'), str) and genre['description'].strip()})
+
+
+def fetch_banner(appid: int) -> str | None:
+    url = fetch_store_details(appid).get('header_image')
+    if not isinstance(url, str):
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme == 'https' and parsed.hostname and parsed.hostname.endswith('.steamstatic.com'):
+        return url
+    return None
 
 
 class GenreStore:
