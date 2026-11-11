@@ -8,6 +8,64 @@ type Game = { appid: number; name?: string; playtime_forever?: number };
 type Library = { steamid: string; games: Game[]; summary: { game_count: number; total_playtime_hours: number; unplayed_count: number; under_one_hour_count: number; top_games: Game[] } };
 const number = (value: number) => value.toLocaleString('ko-KR', { maximumFractionDigits: 1 });
 const minutes = (game: Game) => game.playtime_forever ?? 0;
+
+type SteamProfile = { name: string; avatar_url: string | null; created_at: number | null; level: number | null };
+
+function ProfileCard({ library }: { library: Library }) {
+  const { steamid, summary } = library;
+  const [profile, setProfile] = useState<SteamProfile | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45000);
+    let active = true;
+    async function loadProfile() {
+      try {
+        const response = await fetch(`/api/profile/${encodeURIComponent(steamid)}`, { signal: controller.signal });
+        if (!response.ok) throw new Error('프로필 조회 실패');
+        const result: SteamProfile = await response.json();
+        if (active) setProfile(result);
+      } catch {
+        if (active) setFailed(true);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    void loadProfile();
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [steamid]);
+
+  const played = summary.game_count - summary.unplayed_count;
+  const playedPercent = summary.game_count ? played / summary.game_count * 100 : 0;
+  const createdAt = profile?.created_at ? new Date(profile.created_at * 1000) : null;
+  const years = createdAt ? Math.max(0, (Date.now() - createdAt.getTime()) / (365.2425 * 86400000)) : null;
+  return <section className="panel steam-profile" aria-label="Steam 프로필">
+    <div className="profile-identity">
+      {profile?.avatar_url && !avatarFailed
+        ? <img className="profile-avatar" src={profile.avatar_url} alt="" width={104} height={104} onError={() => setAvatarFailed(true)} />
+        : <span className="profile-avatar avatar-placeholder" aria-hidden="true">{Array.from(profile?.name ?? '◈')[0]}</span>}
+      <div className="profile-details">
+        <h2>{profile?.name ?? 'Steam 프로필'}</h2>
+        <div className="profile-meta">
+          {profile?.level != null && <span className="profile-level">레벨 <strong>{profile.level}</strong></span>}
+          {createdAt && years !== null && <span className="muted" title={`가입일 ${createdAt.toLocaleDateString('ko-KR')}`}>가입 {years < 0.1 ? '1개월 미만' : `${number(years)}년`}</span>}
+          <a href={`https://steamcommunity.com/profiles/${steamid}/`} target="_blank" rel="noreferrer">Steam 프로필 ↗</a>
+        </div>
+        {!profile && <p className="hint" role="status">{failed ? '프로필 정보를 가져오지 못했습니다.' : '프로필 정보 조회 중…'}</p>}
+      </div>
+    </div>
+    <div className="profile-played">
+      <div><span>플레이한 게임 <strong>{number(played)} / {number(summary.game_count)}개</strong></span><strong>{number(playedPercent)}%</strong></div>
+      <progress max={100} value={playedPercent} aria-label="플레이한 게임 비율" />
+    </div>
+  </section>;
+}
+
 function CollapsiblePanel({ title, children }: { title: React.ReactNode; children: React.ReactNode }) {
   return <details className="panel collapsible-panel">
     <summary><h2>{title}</h2><span className="toggle-label"><span className="when-closed">펼쳐보기</span><span className="when-open">접어두기</span><span className="toggle-arrow" aria-hidden="true">⌄</span></span></summary>
@@ -114,6 +172,7 @@ function App() {
       {loading && <div className="empty" role="status"><span className="spinner"/>Steam에서 게임 기록을 가져오고 있습니다.</div>}
       {!loading && !data && !error && <section className="empty"><span className="empty-icon">◈</span><h2>내 게임 기록을 한눈에</h2><p>프로필을 입력하면 플레이시간, 미실행 게임과 전체 목록을 확인할 수 있어요.</p></section>}
       {data && summary && <>
+        <ProfileCard key={data.steamid} library={data} />
         <div className="section-heading"><h2>라이브러리 개요</h2><span className="muted">SteamID {data.steamid}</span></div>
         <section className="stats">{[['보유 게임', summary.game_count, '개'], ['총 플레이시간', summary.total_playtime_hours, '시간'], ['미실행 게임', summary.unplayed_count, '개'], ['1시간 미만 플레이', summary.under_one_hour_count, '개']].map(([label, value, unit]) => <article className="stat" key={label}><span>{label}</span><strong>{number(value as number)}<small>{unit}</small></strong></article>)}</section>
         <section className="panel"><div className="section-heading"><h2>가장 오래 함께한 게임</h2><span className="muted">누적 플레이시간 상위 5개</span></div>{top.length ? top.map((game, index) => <div className="top-game" key={game.appid}><span className="rank">0{index + 1}</span><div className="bar-label"><span>{game.name ?? `게임 ${game.appid}`}</span><div className="track"><div style={{width: `${minutes(game) / minutes(top[0]) * 100}%`}}/></div></div><strong>{number(minutes(game) / 60)}<small> 시간</small></strong></div>) : <p className="muted">아직 플레이한 게임이 없습니다.</p>}</section>

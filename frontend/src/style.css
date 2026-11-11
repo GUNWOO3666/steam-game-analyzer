@@ -14,3 +14,16 @@
 .collapsible-content{padding:0 26px 26px;border-top:1px solid #293548}
 .collapsible-content>.section-heading{margin-top:20px}
 @media(max-width:700px){.collapsible-panel>summary{padding:18px;gap:10px}.collapsible-panel>summary h2{font-size:17px}.toggle-label{gap:6px;font-size:11px}.collapsible-content{padding:0 18px 18px}}
+.panel.steam-profile{background:linear-gradient(125deg,#182e3a,#131c28 72%)}
+.profile-identity{display:flex;align-items:center;gap:24px}
+.profile-avatar{width:104px;height:104px;flex:none;object-fit:cover;border:2px solid #557c8c;border-radius:14px;background:#1b3040}
+.avatar-placeholder{display:grid;place-items:center;color:#8cd8ca;font-size:32px;font-weight:700}
+.profile-details{min-width:0}
+.profile-details h2{font-size:30px;overflow-wrap:anywhere}
+.profile-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;margin-top:10px;font-size:14px}
+.profile-level strong{display:inline-grid;place-items:center;min-width:30px;height:30px;margin-left:3px;padding:0 5px;border:1px solid #74dcc9;border-radius:30px;color:#a0efdf}
+.profile-meta a{color:#a0efdf;text-decoration:underline;text-underline-offset:3px}
+.profile-played{margin-top:22px;padding-top:16px;border-top:1px solid #324454}
+.profile-played>div{display:flex;justify-content:space-between;gap:12px;font-size:14px}
+.profile-played progress{display:block;width:100%;height:10px;margin-top:10px;accent-color:#74dcc9}
+@media(max-width:700px){.profile-identity{gap:14px}.profile-avatar{width:70px;height:70px}.profile-details h2{font-size:22px}}

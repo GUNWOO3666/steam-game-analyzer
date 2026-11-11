@@ -45,9 +45,9 @@ class SteamClient:
     def __init__(self, api_key: str):
         self.api_key = api_key
 
-    def request(self, endpoint: str, **params) -> dict:
+    def request(self, endpoint: str, *, version: int = 1, **params) -> dict:
         query = urlencode({"key": self.api_key, **params})
-        url = f"https://api.steampowered.com/{endpoint}/v1/?{query}"
+        url = f"https://api.steampowered.com/{endpoint}/v{version}/?{query}"
         try:
             with urlopen(url, timeout=20) as response:
                 payload = json.load(response)
@@ -62,6 +62,33 @@ class SteamClient:
             raise SteamError("Steam에 연결할 수 없습니다. 네트워크 상태를 확인하세요.") from None
         except (ValueError, UnicodeError):
             raise SteamError("Steam API 응답을 읽을 수 없습니다.") from None
+
+    def get_profile(self, steamid: str) -> dict:
+        result = self.request("ISteamUser/GetPlayerSummaries", version=2, steamids=steamid)
+        players = result.get("players")
+        if not isinstance(players, list):
+            raise SteamError("Steam 프로필 응답 형식이 올바르지 않습니다.")
+        player = next((entry for entry in players if isinstance(entry, dict) and entry.get("steamid") == steamid), None)
+        if player is None:
+            raise SteamError("Steam 프로필을 찾을 수 없습니다.", 404)
+
+        level = None
+        try:
+            value = self.request("IPlayerService/GetSteamLevel", steamid=steamid).get("player_level")
+            if type(value) is int and value >= 0:
+                level = value
+        except SteamError:
+            pass
+
+        name = player.get("personaname")
+        avatar = player.get("avatarfull")
+        created_at = player.get("timecreated")
+        return {
+            "name": name if isinstance(name, str) and name.strip() else steamid,
+            "avatar_url": avatar if isinstance(avatar, str) and avatar.startswith("https://") else None,
+            "created_at": created_at if type(created_at) is int and 0 < created_at <= 253402300799 else None,
+            "level": level,
+        }
 
     def get_library(self, profile: str) -> dict:
         kind, steamid = parse_profile(profile)

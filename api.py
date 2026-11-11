@@ -80,6 +80,20 @@ def library(profile: str = Query(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
 
 
+@app.get("/api/profile/{steamid}", tags=["라이브러리 분석"], summary="Steam 프로필 요약")
+def player_profile(steamid: str) -> dict:
+    try:
+        kind, identifier = parse_profile(steamid)
+        if kind != "steamid" or steamid != identifier:
+            raise SteamError("SteamID64를 입력하세요.", 400)
+        key = os.environ.get("STEAM_API_KEY", "").strip()
+        if not key:
+            raise HTTPException(status_code=503, detail="서버의 STEAM_API_KEY가 설정되지 않았습니다.")
+        return SteamClient(key).get_profile(steamid)
+    except SteamError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
+
+
 class GenreRequest(BaseModel):
     appids: list[int] = Field(min_length=1, max_length=20)
 
