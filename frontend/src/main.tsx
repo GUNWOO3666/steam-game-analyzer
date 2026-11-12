@@ -9,6 +9,33 @@ type Library = { steamid: string; games: Game[]; summary: { game_count: number; 
 const number = (value: number) => value.toLocaleString('ko-KR', { maximumFractionDigits: 1 });
 const minutes = (game: Game) => game.playtime_forever ?? 0;
 
+type ReviewStats = {
+  sample_size: number;
+  median_minutes: number | null;
+};
+
+function playtimeColor(playtime: number, stats: ReviewStats | null | undefined) {
+  const median = stats?.median_minutes;
+  if (median == null || median <= 0) return undefined;
+  if (playtime >= median * 2) return 'playtime-high';
+  if (playtime <= median / 2) return 'playtime-low';
+  return undefined;
+}
+
+function ReviewPlaytime({ value, loading, onPrioritize }: {
+  value: ReviewStats | null | undefined;
+  loading: boolean;
+  onPrioritize: () => void;
+}) {
+  if (loading) return <span className="muted">조회 중</span>;
+  if (value === undefined) return <button type="button" className="review-priority"
+    title="이 게임을 다음 순서로 조회" onClick={onPrioritize}>조회 대기</button>;
+  if (value === null) return <span className="muted">조회 실패</span>;
+  if (value.median_minutes == null) return <span className="muted">표본 없음</span>;
+  const duration = value.median_minutes < 60 ? `${number(value.median_minutes)}분` : `${number(value.median_minutes / 60)}시간`;
+  return <span title={`리뷰 작성자 ${number(value.sample_size)}명 기준`}>약 {duration}</span>;
+}
+
 type SteamProfile = { name: string; avatar_url: string | null; created_at: number | null; level: number | null };
 
 function ProfileCard({ library }: { library: Library }) {
@@ -88,8 +115,12 @@ function GameBanner({ appid }: { appid: number }) {
   </div>;
 }
 
-function CollapsiblePanel({ title, children }: { title: React.ReactNode; children: React.ReactNode }) {
-  return <details className="panel collapsible-panel">
+function CollapsiblePanel({ title, children, onToggle }: {
+  title: React.ReactNode;
+  children: React.ReactNode;
+  onToggle?: (open: boolean) => void;
+}) {
+  return <details className="panel collapsible-panel" onToggle={onToggle && (event => onToggle(event.currentTarget.open))}>
     <summary><h2>{title}</h2><span className="toggle-label"><span className="when-closed">펼쳐보기</span><span className="when-open">접어두기</span><span className="toggle-arrow" aria-hidden="true">⌄</span></span></summary>
     <div className="collapsible-content">{children}</div>
   </details>;
@@ -104,11 +135,49 @@ function App() {
   const [genreError, setGenreError] = useState('');
   const [profile, setProfile] = useState('');
   const [data, setData] = useState<Library | null>(null);
+  const [allGamesOpen, setAllGamesOpen] = useState(false);
+  const reviewCache = useRef(new Set<number>());
+  const priorityReview = useRef<number | null>(null);
+  const [loadingReview, setLoadingReview] = useState<number | null>(null);
+  const [reviewStats, setReviewStats] = useState<Record<number, ReviewStats | null>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [sort, setSort] = useState('time');
+
+  useEffect(() => {
+    if (!data) return;
+    const controller = new AbortController();
+    const topGames = data.summary.top_games.filter(game => minutes(game) > 0).slice(0, 5);
+    const targets = allGamesOpen ? [...topGames, ...data.games] : topGames;
+    const pending = new Set(targets.map(game => game.appid).filter(appid => !reviewCache.current.has(appid)));
+    setLoadingReview(null);
+
+    async function loadReviewStats() {
+      while (pending.size && !controller.signal.aborted) {
+        const priority = priorityReview.current;
+        const appid = priority !== null && pending.has(priority) ? priority : pending.values().next().value!;
+        pending.delete(appid);
+        if (appid === priority) priorityReview.current = null;
+        setLoadingReview(appid);
+        let stats: ReviewStats | null = null;
+        try {
+          const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(40000)]);
+          const response = await fetch(`/api/games/${appid}/review-playtime`, { signal });
+          if (response.ok) stats = await response.json();
+        } catch {
+          // A failed lookup should not interrupt the remaining games.
+        }
+        if (controller.signal.aborted) return;
+        if (stats) reviewCache.current.add(appid);
+        setReviewStats(previous => ({ ...previous, [appid]: stats }));
+      }
+      if (!controller.signal.aborted) setLoadingReview(null);
+    }
+    void loadReviewStats();
+    return () => controller.abort();
+  }, [data, allGamesOpen]);
   const games = useMemo(() => (data?.games ?? []).filter(game =>
     (game.name ?? String(game.appid)).toLocaleLowerCase().includes(search.toLocaleLowerCase()) &&
     (filter === 'all' || (filter === 'unplayed' ? minutes(game) === 0 : minutes(game) > 0 && minutes(game) < 60))
@@ -116,6 +185,8 @@ function App() {
   async function analyze(event: React.FormEvent) {
     event.preventDefault();
     if (loading) return;
+    priorityReview.current = null;
+    setAllGamesOpen(false);
     genreRequest.current?.abort();
     genreRequest.current = null;
     setGenreBusy(false); setPendingGenres([]);
@@ -206,7 +277,11 @@ function App() {
               <span>{game.name ?? `게임 ${game.appid}`}</span>
               <div className="track"><div style={{ width: `${minutes(game) / minutes(top[0]) * 100}%` }}/></div>
             </div>
-            <strong>{number(minutes(game) / 60)}<small> 시간</small></strong>
+            <div className="ranked-playtime">
+              <strong className={playtimeColor(minutes(game), reviewStats[game.appid])}>{number(minutes(game) / 60)}<small> 시간</small></strong>
+              <span className="review-playtime">global: <ReviewPlaytime value={reviewStats[game.appid]}
+                loading={loadingReview === game.appid} onPrioritize={() => { priorityReview.current = game.appid; }} /></span>
+            </div>
           </div>) : <p className="muted">아직 플레이한 게임이 없습니다.</p>}
         </section>
         <CollapsiblePanel title="장르별 플레이 성향"><p className="muted" role="status">{genreProgress}</p>
@@ -216,8 +291,9 @@ function App() {
           <p className="hint">장르가 여러 개면 플레이시간을 균등 배분합니다. 게임 수는 각 장르에 중복 집계됩니다. 미조회·장르 정보가 없는 게임은 미분류입니다. 장르는 사용자 태그와 다르며 실제 취향을 단정하지 않습니다.</p>
         </CollapsiblePanel>
 
-        <CollapsiblePanel title={<>전체 게임 <small>{data.games.length}개</small></>}><div className="section-heading"><span className="muted">표시 중 {games.length}개</span><select aria-label="게임 정렬" value={sort} onChange={e => setSort(e.target.value)}><option value="time">플레이시간순</option><option value="name">이름순</option></select></div><div className="tools"><div className="tabs">{[['all', '전체'], ['unplayed', '미실행'], ['short', '1시간 미만']].map(([value, label]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} aria-pressed={filter === value}>{label}</button>)}</div><input aria-label="게임 이름 검색" placeholder="게임 이름 검색" value={search} onChange={e => setSearch(e.target.value)}/></div><div className="table-wrap"><table><thead><tr><th>게임</th><th>플레이 상태</th><th>누적 플레이시간</th></tr></thead><tbody>{games.map(game => <tr key={game.appid}><td><a href={`https://store.steampowered.com/app/${game.appid}/`} target="_blank" rel="noreferrer">{game.name ?? `게임 ${game.appid}`} ↗</a></td><td><span className={minutes(game) === 0 ? 'status unplayed' : 'status'}>{minutes(game) === 0 ? '미실행' : minutes(game) < 60 ? '1시간 미만' : '플레이 기록 있음'}</span></td><td>{number(minutes(game) / 60)} 시간</td></tr>)}</tbody></table>{games.length === 0 && <p className="no-results">조건에 맞는 게임이 없습니다.</p>}</div></CollapsiblePanel>
+        <CollapsiblePanel title={<>전체 게임 <small>{data.games.length}개</small></>} onToggle={setAllGamesOpen}><div className="section-heading"><span className="muted">표시 중 {games.length}개</span><select aria-label="게임 정렬" value={sort} onChange={e => setSort(e.target.value)}><option value="time">플레이시간순</option><option value="name">이름순</option></select></div><div className="tools"><div className="tabs">{[['all', '전체'], ['unplayed', '미실행'], ['short', '1시간 미만']].map(([value, label]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} aria-pressed={filter === value}>{label}</button>)}</div><input aria-label="게임 이름 검색" placeholder="게임 이름 검색" value={search} onChange={e => setSearch(e.target.value)}/></div><div className="table-wrap"><table><thead><tr><th>게임</th><th>플레이 상태</th><th>내 플레이시간</th><th>대부분의 이용자들</th></tr></thead><tbody>{games.map(game => <tr key={game.appid}><td className="library-game-cell"><a className="library-game-link" title={game.name ?? `게임 ${game.appid}`} href={`https://store.steampowered.com/app/${game.appid}/`} target="_blank" rel="noreferrer"><GameBanner appid={game.appid} />{game.name ?? `게임 ${game.appid}`} ↗</a></td><td><span className={minutes(game) === 0 ? 'status unplayed' : 'status'}>{minutes(game) === 0 ? '미실행' : minutes(game) < 60 ? '1시간 미만' : '플레이 기록 있음'}</span></td><td className={playtimeColor(minutes(game), reviewStats[game.appid])}>{number(minutes(game) / 60)} 시간</td><td><ReviewPlaytime value={reviewStats[game.appid]} loading={loadingReview === game.appid} onPrioritize={() => { priorityReview.current = game.appid; }} /></td></tr>)}</tbody></table>{games.length === 0 && <p className="no-results">조건에 맞는 게임이 없습니다.</p>}</div></CollapsiblePanel>
         <p className="hint">미실행은 0분, 1시간 미만은 1~59분 기준입니다. 실행시간에는 대기 시간이 포함될 수 있으며 완주 여부를 의미하지 않습니다.</p>
+        <p className="hint"><strong>리뷰 작성자 중앙값 집계 방식</strong><br />게임별 최근 Steam 공개 리뷰 최대 500건에서 작성자별 누적 플레이시간을 짧은 순으로 정렬해 가운데 값을 표시합니다. 표본이 짝수면 가운데 두 값의 평균을 사용합니다. 집계 대상은 유효한 플레이시간이 있는 리뷰 작성자입니다.</p>
       </>}
     </main><footer>Steam Game Analyzer <span>나의 게임을 이해하는 첫걸음 · Steam 비공식 프로젝트</span></footer>
   </div>;
