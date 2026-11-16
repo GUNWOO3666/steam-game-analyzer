@@ -15,17 +15,18 @@ type ReviewStats = {
   histogram: { start_minutes: number; count: number }[];
 };
 
-function PlaytimeDistribution({ game, stats, onClose }: {
+function PlaytimeDistribution({ game, stats, onClose, showOwn = true }: {
   game: Game;
   stats: ReviewStats | null | undefined;
   onClose: () => void;
+  showOwn?: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
 
-  const ownMinutes = minutes(game);
+  const ownMinutes = showOwn ? minutes(game) : 0;
   const median = stats?.median_minutes;
   const source = stats?.histogram ?? [];
   const end = Math.max(ownMinutes, (source.at(-1)?.start_minutes ?? 0) + 300);
@@ -51,13 +52,13 @@ function PlaytimeDistribution({ game, stats, onClose }: {
       : <>
         <p className="muted">최근 공개 리뷰 {number(stats.sample_size)}명 · 시간축 로그 스케일 · 막대는 구간별 인원</p>
         <div className="distribution-legend">
-          <span className="distribution-own">내 기록 {number(ownMinutes / 60)}시간</span>
+          {showOwn && <span className="distribution-own">내 기록 {number(ownMinutes / 60)}시간</span>}
           <span className="distribution-median">리뷰 중앙값 {number(median / 60)}시간</span>
         </div>
         <div className="distribution-scroll">
           <div className="distribution-chart" style={{ minWidth: `${bins.length * 49}px` }}>
             <div className="distribution-axis"><span>{number(peak)}명</span><span>단위: 시간</span></div>
-            <div className="distribution-plot" role="img" aria-label={`리뷰 플레이시간 분포. 내 기록 ${number(ownMinutes / 60)}시간, 리뷰 중앙값 ${number(median / 60)}시간.`}>
+            <div className="distribution-plot" role="img" aria-label={`리뷰 플레이시간 분포. ${showOwn ? `내 기록 ${number(ownMinutes / 60)}시간. ` : ''}리뷰 중앙값 ${number(median / 60)}시간.`}>
               <div className="distribution-bars">
                 {bins.map(bin => <div className="distribution-bin" key={bin.start}
                   style={{ width: `${position(bin.end) - position(bin.start)}%` }}
@@ -65,7 +66,7 @@ function PlaytimeDistribution({ game, stats, onClose }: {
                   <div style={{ height: `${bin.count / peak * 100}%` }} />
                 </div>)}
               </div>
-              <span className="distribution-marker distribution-own" style={{ left: `${position(ownMinutes)}%` }} />
+              {showOwn && <span className="distribution-marker distribution-own" style={{ left: `${position(ownMinutes)}%` }} />}
               <span className="distribution-marker distribution-median" style={{ left: `${position(median)}%` }} />
             </div>
             <div className="distribution-time-axis">
@@ -176,6 +177,79 @@ function GameBanner({ appid }: { appid: number }) {
   return <div className="game-banner" aria-hidden="true">
     {url && <img key={url} src={url} alt="" width={460} height={215} loading="lazy" onError={handleImageError} />}
   </div>;
+}
+
+function StoreSearch({ libraryGames }: { libraryGames: Game[] }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<Game[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState('');
+  const [selected, setSelected] = useState<Game | null>(null);
+  const [stats, setStats] = useState<ReviewStats | null>();
+  const searchRequest = useRef<AbortController | null>(null);
+
+  async function search(event: React.FormEvent) {
+    event.preventDefault();
+    const term = query.trim();
+    if (!term) return;
+    searchRequest.current?.abort();
+    const controller = new AbortController();
+    searchRequest.current = controller;
+    setSearching(true);
+    setResults(null);
+    setError('');
+    try {
+      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]);
+      const response = await fetch(`/api/games/search?${new URLSearchParams({ q: term })}`, { signal });
+      if (!response.ok) throw new Error();
+      const result = await response.json();
+      if (!controller.signal.aborted) setResults(result.games);
+    } catch {
+      if (!controller.signal.aborted) setError('Steam 상점 검색에 실패했습니다. 잠시 후 다시 시도하세요.');
+    } finally {
+      if (!controller.signal.aborted) setSearching(false);
+    }
+  }
+
+  useEffect(() => () => searchRequest.current?.abort(), []);
+  useEffect(() => {
+    if (!selected) return;
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(40000)]);
+    fetch(`/api/games/${selected.appid}/review-playtime`, { signal })
+      .then(response => {
+        if (!response.ok) throw new Error();
+        return response.json();
+      })
+      .then(result => { if (!controller.signal.aborted) setStats(result); })
+      .catch(() => { if (!controller.signal.aborted) setStats(null); });
+    return () => controller.abort();
+  }, [selected]);
+
+  const owned = selected && libraryGames.find(game => game.appid === selected.appid);
+  return <section className="panel" aria-labelledby="store-search-title">
+    <h2 id="store-search-title">Steam 게임 검색</h2>
+    <form className="store-search" onSubmit={search}>
+      <label htmlFor="store-query">게임 이름</label>
+      <div className="input-row">
+        <input id="store-query" value={query} onChange={event => setQuery(event.target.value)} maxLength={100} placeholder="예: Portal 2" />
+        <button className="store-search-button" disabled={!query.trim() || searching}>
+          <span className="search-icon" aria-hidden="true" />검색
+        </button>
+      </div>
+    </form>
+    {searching && <p className="muted" role="status">Steam 상점 검색 중…</p>}
+    {error && <p role="alert">{error}</p>}
+    {results?.length === 0 && <p className="muted">검색 결과가 없습니다.</p>}
+    {!!results?.length && <ul className="store-results">
+      {results.map(game => <li key={game.appid}>
+        <button type="button" onClick={() => { setStats(undefined); setSelected(game); }}>
+          <span>{game.name}</span><small>플레이시간 보기</small>
+        </button>
+      </li>)}
+    </ul>}
+    {selected && <PlaytimeDistribution game={owned ?? selected} stats={stats} showOwn={Boolean(owned)} onClose={() => setSelected(null)} />}
+  </section>;
 }
 
 function CollapsiblePanel({ title, children, onToggle }: {
@@ -337,6 +411,7 @@ function App() {
     <main>
       <section className="intro"><p className="eyebrow">나의 게임 기록, 새로운 발견</p><h1>당신의 라이브러리를<br/><span>조금 더 깊이.</span></h1><p className="muted">쌓인 게임과 함께한 시간. Steam 기록에서 나의 플레이 습관을 살펴보세요.</p></section>
       <form className="profile-form" onSubmit={analyze}><label htmlFor="profile">Steam 프로필 URL 또는 SteamID64</label><div className="input-row"><input id="profile" required maxLength={2048} value={profile} onChange={e => setProfile(e.target.value)} placeholder="https://steamcommunity.com/id/내프로필" disabled={loading}/><button disabled={loading || !profile.trim()}>{loading ? '불러오는 중…' : '라이브러리 분석 →'}</button></div><p className="hint">프로필과 게임 세부 정보가 공개되어 있어야 합니다.</p></form>
+      <StoreSearch libraryGames={data?.games ?? []} />
       {error && <div className="error" role="alert">{error}</div>}
       {loading && <div className="empty" role="status"><span className="spinner"/>Steam에서 게임 기록을 가져오고 있습니다.</div>}
       {!loading && !data && !error && <section className="empty"><span className="empty-icon">◈</span><h2>내 게임 기록을 한눈에</h2><p>프로필을 입력하면 플레이시간, 미실행 게임과 전체 목록을 확인할 수 있어요.</p></section>}

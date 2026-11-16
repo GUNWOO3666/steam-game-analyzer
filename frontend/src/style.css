@@ -65,4 +65,13 @@
 .distribution-bin>div{width:100%;background:#5578a6;border-radius:2px 2px 0 0}
 .distribution-marker{position:absolute;top:0;bottom:0;transform:translateX(-50%);pointer-events:none;border-left:4px solid currentColor}
 .distribution-marker.distribution-median{border-left:2px dashed currentColor}
+.store-search{margin-top:18px}
+.store-search-button{display:inline-flex;align-items:center;justify-content:center;gap:9px}
+.search-icon{position:relative;width:13px;height:13px;border:2px solid currentColor;border-radius:50%;margin-right:3px}
+.search-icon::after{content:"";position:absolute;width:6px;height:2px;left:8px;top:8px;background:currentColor;transform:rotate(45deg);transform-origin:left center}
+.store-results{list-style:none;margin:16px 0 0;padding:0}
+.store-results li+li{margin-top:6px}
+.store-results button{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;text-align:left;background:#1b2a3a;color:#e8edf4;padding:10px 14px}
+.store-results button:hover{background:#253b4f}
+.store-results small{color:#a0efdf;flex-shrink:0}
 @media(max-width:700px){.ranked-playtime{font-size:13px}.review-playtime{font-size:11px}}

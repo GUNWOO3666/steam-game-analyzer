@@ -4,6 +4,7 @@ import os
 from pydantic import BaseModel, Field
 from genre_analyzer import GenreStore, fetch_banner
 from playtime_stats import review_playtime
+from steam_store import search_games
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -103,6 +104,17 @@ def game_banner(appid: int) -> dict:
         return {'url': fetch_banner(appid)}
     except (OSError, ValueError, TypeError, AttributeError):
         raise HTTPException(status_code=502, detail='Steam 상점 배너 정보를 가져오지 못했습니다.') from None
+
+
+@app.get('/api/games/search', summary='Steam 상점 게임 검색')
+def game_search(q: str = Query(min_length=1, max_length=100)) -> dict:
+    term = q.strip()
+    if not term:
+        raise HTTPException(status_code=400, detail='게임 이름을 입력하세요.')
+    try:
+        return {'games': search_games(term)}
+    except (OSError, ValueError):
+        raise HTTPException(status_code=502, detail='Steam 상점 검색에 실패했습니다.') from None
 
 
 @app.get('/api/games/{appid}/review-playtime', tags=['라이브러리 분석'], summary='Steam 리뷰 작성자 플레이시간 중앙값')
