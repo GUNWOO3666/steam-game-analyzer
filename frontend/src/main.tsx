@@ -101,12 +101,69 @@ function ReviewPlaytime({ value, loading, onPrioritize }: {
 }
 
 type SteamProfile = { name: string; avatar_url: string | null; created_at: number | null; level: number | null };
+type MiniProfile = { banner_image?: string; banner_video?: string; badge_image?: string; badge_name?: string };
+
+function LibraryValue({ games }: { games: Game[] }) {
+  const [progress, setProgress] = useState({ checked: 0, priced: 0, totalJeon: 0 });
+  const totalGames = new Set(games.map(game => game.appid)).size;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const appids = [...new Set(games.map(game => game.appid))];
+    const totals = { checked: 0, priced: 0, totalJeon: 0 };
+
+    async function loadPrices() {
+      for (let offset = 0; offset < appids.length; offset += 8) {
+        const batch = appids.slice(offset, offset + 8);
+        try {
+          const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]);
+          const response = await fetch('/api/games/prices', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ appids: batch }), signal,
+          });
+          if (response.ok) {
+            const result = await response.json();
+            totals.priced += result.priced_count;
+            totals.totalJeon += result.total_jeon;
+          }
+        } catch {
+          // Continue with the next batch when prices cannot be fetched.
+        }
+        if (controller.signal.aborted) return;
+        totals.checked += batch.length;
+        setProgress({ ...totals });
+      }
+    }
+    void loadPrices();
+    return () => controller.abort();
+  }, [games]);
+
+  const loading = progress.checked < totalGames;
+  const value = new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' }).format(progress.totalJeon / 100);
+  return <div className="library-value" aria-label="라이브러리 가치">
+    <span>라이브러리 가치</span>
+    <strong>{progress.priced || !totalGames ? value : loading ? '조회 중…' : '가격 정보 없음'}</strong>
+    <small>한국 Steam 상점 현재가 · {number(totalGames)}개 중 {number(progress.priced)}개 합산</small>
+    {loading ? <small>가격 조회 중 · {number(progress.checked)} / {number(totalGames)}개</small>
+      : progress.priced < totalGames && <small>가격 미확인 {number(totalGames - progress.priced)}개 제외</small>}
+  </div>;
+}
 
 function ProfileCard({ library }: { library: Library }) {
   const { steamid, summary } = library;
   const [profile, setProfile] = useState<SteamProfile | null>(null);
   const [failed, setFailed] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [miniProfile, setMiniProfile] = useState<MiniProfile | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(9000)]);
+    fetch(`/api/profile/${encodeURIComponent(steamid)}/mini`, { signal })
+      .then(response => response.ok ? response.json() : null)
+      .then(result => { if (!controller.signal.aborted) setMiniProfile(result); })
+      .catch(() => { /* The profile has a default background. */ });
+    return () => controller.abort();
+  }, [steamid]);
   useEffect(() => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 45000);
@@ -135,19 +192,47 @@ function ProfileCard({ library }: { library: Library }) {
   const playedPercent = summary.game_count ? played / summary.game_count * 100 : 0;
   const createdAt = profile?.created_at ? new Date(profile.created_at * 1000) : null;
   const years = createdAt ? Math.max(0, (Date.now() - createdAt.getTime()) / (365.2425 * 86400000)) : null;
+  const profileStats = [
+    { label: '보유 게임', value: summary.game_count, unit: '개' },
+    { label: '총 플레이시간', value: summary.total_playtime_hours, unit: '시간' },
+    { label: '미실행 게임', value: summary.unplayed_count, unit: '개' },
+    { label: '1시간 미만 플레이', value: summary.under_one_hour_count, unit: '개' },
+  ];
   return <section className="panel steam-profile" aria-label="Steam 프로필">
+    <div className="profile-overview">
+    <div className="profile-information">
     <div className="profile-identity">
       {profile?.avatar_url && !avatarFailed
         ? <img className="profile-avatar" src={profile.avatar_url} alt="" width={104} height={104} onError={() => setAvatarFailed(true)} />
         : <span className="profile-avatar avatar-placeholder" aria-hidden="true">{Array.from(profile?.name ?? '◈')[0]}</span>}
       <div className="profile-details">
         <h2>{profile?.name ?? 'Steam 프로필'}</h2>
+        {miniProfile?.badge_image && <div className="profile-featured-badge">
+          <img src={miniProfile.badge_image} alt="" width={28} height={28} onError={event => { event.currentTarget.hidden = true; }} />
+          <span>{miniProfile.badge_name || '대표 배지'}</span>
+        </div>}
         <div className="profile-meta">
           {profile?.level != null && <span className="profile-level">레벨 <strong>{profile.level}</strong></span>}
           {createdAt && years !== null && <span className="muted" title={`가입일 ${createdAt.toLocaleDateString('ko-KR')}`}>가입 {years < 0.1 ? '1개월 미만' : `${number(years)}년`}</span>}
           <a href={`https://steamcommunity.com/profiles/${steamid}/`} target="_blank" rel="noreferrer">Steam 프로필 ↗</a>
         </div>
         {!profile && <p className="hint" role="status">{failed ? '프로필 정보를 가져오지 못했습니다.' : '프로필 정보 조회 중…'}</p>}
+      </div>
+    </div>
+      <dl className="profile-stats" aria-label="라이브러리 개요">
+        {profileStats.map(({ label, value, unit }) => <div key={label}>
+          <dt>{label}</dt>
+          <dd>{number(value)}<small>{unit}</small></dd>
+        </div>)}
+      </dl>
+    </div>
+      <div className="profile-value-area">
+        {(miniProfile?.banner_image || miniProfile?.banner_video) && <div className="profile-banner" aria-hidden="true">
+          {miniProfile.banner_image && <img src={miniProfile.banner_image} alt="" onError={event => { event.currentTarget.hidden = true; }} />}
+          {miniProfile.banner_video && <video src={miniProfile.banner_video} muted autoPlay playsInline
+            onError={event => { event.currentTarget.hidden = true; }} />}
+        </div>}
+        <LibraryValue games={library.games} />
       </div>
     </div>
     <div className="profile-played">
@@ -187,6 +272,9 @@ function StoreSearch({ libraryGames }: { libraryGames: Game[] }) {
   const [selected, setSelected] = useState<Game | null>(null);
   const [stats, setStats] = useState<ReviewStats | null>();
   const searchRequest = useRef<AbortController | null>(null);
+  const searchArea = useRef<HTMLDivElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   async function search(event: React.FormEvent) {
     event.preventDefault();
@@ -195,6 +283,7 @@ function StoreSearch({ libraryGames }: { libraryGames: Game[] }) {
     searchRequest.current?.abort();
     const controller = new AbortController();
     searchRequest.current = controller;
+    setDropdownOpen(true);
     setSearching(true);
     setResults(null);
     setError('');
@@ -211,7 +300,16 @@ function StoreSearch({ libraryGames }: { libraryGames: Game[] }) {
     }
   }
 
-  useEffect(() => () => searchRequest.current?.abort(), []);
+  useEffect(() => {
+    function closeOutside(event: PointerEvent) {
+      if (event.target instanceof Node && !searchArea.current?.contains(event.target)) setDropdownOpen(false);
+    }
+    document.addEventListener('pointerdown', closeOutside);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      searchRequest.current?.abort();
+    };
+  }, []);
   useEffect(() => {
     if (!selected) return;
     const controller = new AbortController();
@@ -227,29 +325,47 @@ function StoreSearch({ libraryGames }: { libraryGames: Game[] }) {
   }, [selected]);
 
   const owned = selected && libraryGames.find(game => game.appid === selected.appid);
-  return <section className="panel" aria-labelledby="store-search-title">
-    <h2 id="store-search-title">Steam 게임 검색</h2>
-    <form className="store-search" onSubmit={search}>
-      <label htmlFor="store-query">게임 이름</label>
-      <div className="input-row">
-        <input id="store-query" value={query} onChange={event => setQuery(event.target.value)} maxLength={100} placeholder="예: Portal 2" />
-        <button className="store-search-button" disabled={!query.trim() || searching}>
-          <span className="search-icon" aria-hidden="true" />검색
-        </button>
-      </div>
+  return <div className="store-search" ref={searchArea} onKeyDown={event => {
+    if (event.key === 'Escape' && dropdownOpen) {
+      event.preventDefault();
+      setDropdownOpen(false);
+      searchInput.current?.focus();
+    }
+  }}>
+    <form className="store-search-form" role="search" onSubmit={search}>
+      <button className="store-search-button" aria-label="Steam 게임 검색" disabled={!query.trim() || searching}>
+        <span className="search-icon" aria-hidden="true" />
+      </button>
+      <input ref={searchInput} aria-label="게임 이름" value={query} maxLength={100} placeholder="Steam 게임 검색"
+        onClick={() => setDropdownOpen(true)} onChange={event => {
+          searchRequest.current?.abort();
+          setQuery(event.target.value);
+          setResults(null);
+          setError('');
+          setSearching(false);
+        }} />
     </form>
-    {searching && <p className="muted" role="status">Steam 상점 검색 중…</p>}
-    {error && <p role="alert">{error}</p>}
-    {results?.length === 0 && <p className="muted">검색 결과가 없습니다.</p>}
-    {!!results?.length && <ul className="store-results">
-      {results.map(game => <li key={game.appid}>
-        <button type="button" onClick={() => { setStats(undefined); setSelected(game); }}>
-          <span>{game.name}</span><small>플레이시간 보기</small>
-        </button>
-      </li>)}
-    </ul>}
-    {selected && <PlaytimeDistribution game={owned ?? selected} stats={stats} showOwn={Boolean(owned)} onClose={() => setSelected(null)} />}
-  </section>;
+    {dropdownOpen && (searching || error || results) && <div className="store-search-dropdown">
+      {searching && <p className="muted" role="status">Steam 상점 검색 중…</p>}
+      {error && <p role="alert">{error}</p>}
+      {results?.length === 0 && <p className="muted" role="status">검색 결과가 없습니다.</p>}
+      {!!results?.length && <ul className="store-results" aria-label="게임 검색 결과">
+        {results.map(game => <li key={game.appid}>
+          <button type="button" onClick={() => {
+            setDropdownOpen(false);
+            setStats(undefined);
+            setSelected(game);
+          }}>
+            <span>{game.name}</span><small>플레이시간 보기</small>
+          </button>
+        </li>)}
+      </ul>}
+    </div>}
+    {selected && <PlaytimeDistribution game={owned ?? selected} stats={stats} showOwn={Boolean(owned)} onClose={() => {
+      setSelected(null);
+      searchInput.current?.focus();
+    }} />}
+  </div>;
 }
 
 function CollapsiblePanel({ title, children, onToggle }: {
@@ -407,18 +523,22 @@ function App() {
   }
 
   return <div className="shell">
-    <header><a className="brand" href="/">◈ <span>Steam Game Analyzer</span></a><span className="badge">라이브러리 분석 · 초기 버전</span></header>
-    <main>
-      <section className="intro"><p className="eyebrow">나의 게임 기록, 새로운 발견</p><h1>당신의 라이브러리를<br/><span>조금 더 깊이.</span></h1><p className="muted">쌓인 게임과 함께한 시간. Steam 기록에서 나의 플레이 습관을 살펴보세요.</p></section>
-      <form className="profile-form" onSubmit={analyze}><label htmlFor="profile">Steam 프로필 URL 또는 SteamID64</label><div className="input-row"><input id="profile" required maxLength={2048} value={profile} onChange={e => setProfile(e.target.value)} placeholder="https://steamcommunity.com/id/내프로필" disabled={loading}/><button disabled={loading || !profile.trim()}>{loading ? '불러오는 중…' : '라이브러리 분석 →'}</button></div><p className="hint">프로필과 게임 세부 정보가 공개되어 있어야 합니다.</p></form>
+    <header className="site-header">
+      <a className="brand" href="/">◈ <span>Steam Game Analyzer</span></a>
       <StoreSearch libraryGames={data?.games ?? []} />
+      <span className="badge">라이브러리 분석 · 초기 버전</span>
+    </header>
+    <main>
+      <section className="intro">
+        <h1>내 Steam 플레이 기록</h1>
+        <p className="muted">Steam 프로필을 입력하면 보유 게임, 플레이시간, 장르별 기록을 확인할 수 있어요.</p>
+      </section>
+      <form className="profile-form" onSubmit={analyze}><label htmlFor="profile">Steam 프로필 URL 또는 SteamID64</label><div className="input-row"><input id="profile" required maxLength={2048} value={profile} onChange={e => setProfile(e.target.value)} placeholder="https://steamcommunity.com/id/내프로필" disabled={loading}/><button disabled={loading || !profile.trim()}>{loading ? '불러오는 중…' : '라이브러리 분석 →'}</button></div><p className="hint">프로필과 게임 세부 정보가 공개되어 있어야 합니다.</p></form>
       {error && <div className="error" role="alert">{error}</div>}
       {loading && <div className="empty" role="status"><span className="spinner"/>Steam에서 게임 기록을 가져오고 있습니다.</div>}
       {!loading && !data && !error && <section className="empty"><span className="empty-icon">◈</span><h2>내 게임 기록을 한눈에</h2><p>프로필을 입력하면 플레이시간, 미실행 게임과 전체 목록을 확인할 수 있어요.</p></section>}
       {data && summary && <>
         <ProfileCard key={data.steamid} library={data} />
-        <div className="section-heading"><h2>라이브러리 개요</h2><span className="muted">SteamID {data.steamid}</span></div>
-        <section className="stats">{[['보유 게임', summary.game_count, '개'], ['총 플레이시간', summary.total_playtime_hours, '시간'], ['미실행 게임', summary.unplayed_count, '개'], ['1시간 미만 플레이', summary.under_one_hour_count, '개']].map(([label, value, unit]) => <article className="stat" key={label}><span>{label}</span><strong>{number(value as number)}<small>{unit}</small></strong></article>)}</section>
         <section className="panel">
           <div className="section-heading"><h2>가장 오래 함께한 게임</h2><span className="muted">누적 플레이시간 상위 5개</span></div>
           {top.length ? top.map((game, index) => <div className="top-game ranked-game" key={game.appid}>

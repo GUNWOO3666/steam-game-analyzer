@@ -4,7 +4,8 @@ import os
 from pydantic import BaseModel, Field
 from genre_analyzer import GenreStore, fetch_banner
 from playtime_stats import review_playtime
-from steam_store import search_games
+from steam_profile_style import fetch_mini_profile
+from steam_store import library_prices, search_games
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -96,6 +97,16 @@ def player_profile(steamid: str) -> dict:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
 
 
+@app.get('/api/profile/{steamid}/mini', summary='공개 Steam 미니 프로필 꾸미기')
+def mini_profile(steamid: str) -> dict:
+    if len(steamid) != 17 or not steamid.isascii() or not steamid.isdecimal():
+        raise HTTPException(status_code=400, detail='SteamID64를 입력하세요.')
+    try:
+        return fetch_mini_profile(steamid)
+    except (OSError, ValueError):
+        return {}
+
+
 @app.get('/api/games/{appid}/banner', tags=['라이브러리 분석'], summary='Steam 게임 배너 주소 조회')
 def game_banner(appid: int) -> dict:
     if not 0 < appid <= 4294967295:
@@ -125,6 +136,17 @@ def game_review_playtime(appid: int) -> dict:
         return review_playtime(appid)
     except (OSError, ValueError):
         raise HTTPException(status_code=502, detail='리뷰 표본을 가져오지 못했습니다.') from None
+
+
+class PriceRequest(BaseModel):
+    appids: list[int] = Field(min_length=1, max_length=8)
+
+
+@app.post('/api/games/prices', summary='한국 Steam 상점 현재가 합계')
+def game_prices(request: PriceRequest) -> dict:
+    if any(not 0 < appid <= 4294967295 for appid in request.appids):
+        raise HTTPException(status_code=400, detail='게임 번호는 유효한 양의 정수여야 합니다.')
+    return library_prices(request.appids)
 
 
 class GenreRequest(BaseModel):
