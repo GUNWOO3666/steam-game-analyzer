@@ -44,4 +44,25 @@
 .library-game-link .game-banner{position:absolute;left:10px;top:4px;bottom:4px;width:96px;aspect-ratio:auto;border-radius:3px}
 .library-game-link .game-banner img{display:block}
 .hint a{text-decoration:underline;text-underline-offset:2px}
+.distribution-button{margin-top:5px;line-height:1.25}
+.distribution-dialog{width:min(660px,calc(100% - 32px));max-height:calc(100% - 32px);padding:20px;border:1px solid #344155;border-radius:12px;background:#131c28;color:#e8edf4}
+.distribution-dialog::backdrop{background:#080e16bb}
+.distribution-dialog .section-heading{align-items:center}
+.distribution-dialog button{padding:6px 12px}
+.distribution-legend{display:flex;flex-wrap:wrap;gap:8px 20px;margin-bottom:15px;font-size:13px}
+.distribution-own{color:#ffcc80}
+.distribution-median{color:#9eeedc}
+.distribution-axis{display:flex;justify-content:space-between;color:#9aa8bc;font-size:12px;padding:4px 0}
+.distribution-scroll{overflow-x:auto}
+.distribution-chart{padding-inline:8px}
+.distribution-plot{position:relative;height:clamp(120px,32vh,220px);border-block:1px solid #344155}
+.distribution-bars{display:flex;height:100%}
+.distribution-bin{display:flex;align-items:flex-end;flex:none;min-width:0;padding-inline:1px}
+.distribution-time-axis{position:relative;height:24px;color:#9aa8bc;font-size:12px;white-space:nowrap}
+.distribution-time-axis span{position:absolute;top:4px;transform:translateX(-50%)}
+.distribution-time-axis span:first-child{transform:none}
+.distribution-time-axis span:last-child{transform:translateX(-100%)}
+.distribution-bin>div{width:100%;background:#5578a6;border-radius:2px 2px 0 0}
+.distribution-marker{position:absolute;top:0;bottom:0;transform:translateX(-50%);pointer-events:none;border-left:4px solid currentColor}
+.distribution-marker.distribution-median{border-left:2px dashed currentColor}
 @media(max-width:700px){.ranked-playtime{font-size:13px}.review-playtime{font-size:11px}}

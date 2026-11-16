@@ -15,6 +15,7 @@ class ReviewPlaytimeTests(unittest.TestCase):
         with patch('playtime_stats._review_page', side_effect=pages) as fetch:
             self.assertEqual(_review_stats(1, 0), {
                 'sample_size': 2, 'median_minutes': 299.5,
+                'histogram': [{'start_minutes': 0, 'count': 1}, {'start_minutes': 300, 'count': 1}],
             })
         self.assertEqual(fetch.call_count, 2)
 
@@ -23,9 +24,13 @@ class ReviewPlaytimeTests(unittest.TestCase):
             result = _review_stats(2, 0)
         self.assertEqual(result['sample_size'], 0)
         self.assertIsNone(result['median_minutes'])
+        self.assertEqual(result['histogram'], [])
 
     def test_odd_sample_uses_middle_playtime(self):
         reviews = [{'author': {'steamid': str(index), 'playtime_forever': value}}
                    for index, value in enumerate([9000, 0, 45])]
         with patch('playtime_stats._review_page', return_value={'reviews': reviews}):
-            self.assertEqual(_review_stats(3, 0), {'sample_size': 3, 'median_minutes': 45})
+            self.assertEqual(_review_stats(3, 0), {
+                'sample_size': 3, 'median_minutes': 45,
+                'histogram': [{'start_minutes': 0, 'count': 2}, {'start_minutes': 9000, 'count': 1}],
+            })

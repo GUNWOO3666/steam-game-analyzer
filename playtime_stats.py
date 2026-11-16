@@ -1,4 +1,5 @@
 """Median lifetime playtime for a sample of recent public Steam reviews."""
+from collections import Counter
 from functools import lru_cache
 import json
 from statistics import median
@@ -52,9 +53,11 @@ def _review_stats(appid: int, _cache_day: int) -> dict:
             break
         seen_cursors.add(cursor)
 
+    buckets = Counter(minutes // 300 * 300 for minutes in playtimes.values())
     return {
         'sample_size': len(playtimes),
         'median_minutes': median(playtimes.values()) if playtimes else None,
+        'histogram': [{'start_minutes': start, 'count': count} for start, count in sorted(buckets.items())],
     }
 
 

@@ -12,7 +12,70 @@ const minutes = (game: Game) => game.playtime_forever ?? 0;
 type ReviewStats = {
   sample_size: number;
   median_minutes: number | null;
+  histogram: { start_minutes: number; count: number }[];
 };
+
+function PlaytimeDistribution({ game, stats, onClose }: {
+  game: Game;
+  stats: ReviewStats | null | undefined;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    dialog.current?.showModal();
+  }, []);
+
+  const ownMinutes = minutes(game);
+  const median = stats?.median_minutes;
+  const source = stats?.histogram ?? [];
+  const end = Math.max(ownMinutes, (source.at(-1)?.start_minutes ?? 0) + 300);
+  const edges = [0, 300];
+  while (edges[edges.length - 1] < end) edges.push(edges[edges.length - 1] * 2);
+  const bins = edges.slice(1).map((upper, index) => ({ start: edges[index], end: upper, count: 0 }));
+  for (const bucket of source) {
+    const bin = bins.find(bin => bucket.start_minutes < bin.end);
+    if (bin) bin.count += bucket.count;
+  }
+  const scale = Math.log1p(edges[edges.length - 1] / 300);
+  const position = (value: number) => Math.log1p(value / 300) / scale * 100;
+  const peak = Math.max(1, ...bins.map(bin => bin.count));
+
+  return <dialog ref={dialog} className="distribution-dialog" onClose={onClose} aria-labelledby="distribution-title">
+    <div className="section-heading">
+      <h2 id="distribution-title">{game.name ?? `게임 ${game.appid}`} · 플레이시간 분포</h2>
+      <form method="dialog"><button type="submit" autoFocus>닫기</button></form>
+    </div>
+    {stats === undefined ? <p role="status">리뷰 표본 조회 중…</p>
+      : stats === null ? <p role="status">리뷰 표본을 가져오지 못했습니다.</p>
+      : median == null || source.length === 0 ? <p>표시할 리뷰 표본이 없습니다.</p>
+      : <>
+        <p className="muted">최근 공개 리뷰 {number(stats.sample_size)}명 · 시간축 로그 스케일 · 막대는 구간별 인원</p>
+        <div className="distribution-legend">
+          <span className="distribution-own">내 기록 {number(ownMinutes / 60)}시간</span>
+          <span className="distribution-median">리뷰 중앙값 {number(median / 60)}시간</span>
+        </div>
+        <div className="distribution-scroll">
+          <div className="distribution-chart" style={{ minWidth: `${bins.length * 49}px` }}>
+            <div className="distribution-axis"><span>{number(peak)}명</span><span>단위: 시간</span></div>
+            <div className="distribution-plot" role="img" aria-label={`리뷰 플레이시간 분포. 내 기록 ${number(ownMinutes / 60)}시간, 리뷰 중앙값 ${number(median / 60)}시간.`}>
+              <div className="distribution-bars">
+                {bins.map(bin => <div className="distribution-bin" key={bin.start}
+                  style={{ width: `${position(bin.end) - position(bin.start)}%` }}
+                  title={`${number(bin.start / 60)}~${number(bin.end / 60)}시간 미만 · ${bin.count}명`}>
+                  <div style={{ height: `${bin.count / peak * 100}%` }} />
+                </div>)}
+              </div>
+              <span className="distribution-marker distribution-own" style={{ left: `${position(ownMinutes)}%` }} />
+              <span className="distribution-marker distribution-median" style={{ left: `${position(median)}%` }} />
+            </div>
+            <div className="distribution-time-axis">
+              {edges.map(edge => <span key={edge} style={{ left: `${position(edge)}%` }}>{number(edge / 60)}</span>)}
+            </div>
+          </div>
+        </div>
+      </>}
+  </dialog>;
+}
 
 function playtimeColor(playtime: number, stats: ReviewStats | null | undefined) {
   const median = stats?.median_minutes;
@@ -140,6 +203,7 @@ function App() {
   const priorityReview = useRef<number | null>(null);
   const [loadingReview, setLoadingReview] = useState<number | null>(null);
   const [reviewStats, setReviewStats] = useState<Record<number, ReviewStats | null>>({});
+  const [distributionGame, setDistributionGame] = useState<Game | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -185,6 +249,7 @@ function App() {
   async function analyze(event: React.FormEvent) {
     event.preventDefault();
     if (loading) return;
+    setDistributionGame(null);
     priorityReview.current = null;
     setAllGamesOpen(false);
     genreRequest.current?.abort();
@@ -256,6 +321,17 @@ function App() {
   const summary = data?.summary;
 
   const top = summary?.top_games.filter(game => minutes(game) > 0).slice(0, 5) ?? [];
+  function openDistribution(game: Game) {
+    priorityReview.current = game.appid;
+    setDistributionGame(game);
+  }
+
+  function distributionButton(game: Game) {
+    return <button type="button" className="review-priority distribution-button"
+      aria-label={`${game.name ?? `게임 ${game.appid}`} 플레이시간 분포 보기`}
+      onClick={() => openDistribution(game)}>분포 보기</button>;
+  }
+
   return <div className="shell">
     <header><a className="brand" href="/">◈ <span>Steam Game Analyzer</span></a><span className="badge">라이브러리 분석 · 초기 버전</span></header>
     <main>
@@ -281,6 +357,7 @@ function App() {
               <strong className={playtimeColor(minutes(game), reviewStats[game.appid])}>{number(minutes(game) / 60)}<small> 시간</small></strong>
               <span className="review-playtime">global: <ReviewPlaytime value={reviewStats[game.appid]}
                 loading={loadingReview === game.appid} onPrioritize={() => { priorityReview.current = game.appid; }} /></span>
+              {distributionButton(game)}
             </div>
           </div>) : <p className="muted">아직 플레이한 게임이 없습니다.</p>}
         </section>
@@ -291,9 +368,11 @@ function App() {
           <p className="hint">장르가 여러 개면 플레이시간을 균등 배분합니다. 게임 수는 각 장르에 중복 집계됩니다. 미조회·장르 정보가 없는 게임은 미분류입니다. 장르는 사용자 태그와 다르며 실제 취향을 단정하지 않습니다.</p>
         </CollapsiblePanel>
 
-        <CollapsiblePanel title={<>전체 게임 <small>{data.games.length}개</small></>} onToggle={setAllGamesOpen}><div className="section-heading"><span className="muted">표시 중 {games.length}개</span><select aria-label="게임 정렬" value={sort} onChange={e => setSort(e.target.value)}><option value="time">플레이시간순</option><option value="name">이름순</option></select></div><div className="tools"><div className="tabs">{[['all', '전체'], ['unplayed', '미실행'], ['short', '1시간 미만']].map(([value, label]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} aria-pressed={filter === value}>{label}</button>)}</div><input aria-label="게임 이름 검색" placeholder="게임 이름 검색" value={search} onChange={e => setSearch(e.target.value)}/></div><div className="table-wrap"><table><thead><tr><th>게임</th><th>플레이 상태</th><th>내 플레이시간</th><th>대부분의 이용자들</th></tr></thead><tbody>{games.map(game => <tr key={game.appid}><td className="library-game-cell"><a className="library-game-link" title={game.name ?? `게임 ${game.appid}`} href={`https://store.steampowered.com/app/${game.appid}/`} target="_blank" rel="noreferrer"><GameBanner appid={game.appid} />{game.name ?? `게임 ${game.appid}`} ↗</a></td><td><span className={minutes(game) === 0 ? 'status unplayed' : 'status'}>{minutes(game) === 0 ? '미실행' : minutes(game) < 60 ? '1시간 미만' : '플레이 기록 있음'}</span></td><td className={playtimeColor(minutes(game), reviewStats[game.appid])}>{number(minutes(game) / 60)} 시간</td><td><ReviewPlaytime value={reviewStats[game.appid]} loading={loadingReview === game.appid} onPrioritize={() => { priorityReview.current = game.appid; }} /></td></tr>)}</tbody></table>{games.length === 0 && <p className="no-results">조건에 맞는 게임이 없습니다.</p>}</div></CollapsiblePanel>
+        <CollapsiblePanel title={<>전체 게임 <small>{data.games.length}개</small></>} onToggle={setAllGamesOpen}><div className="section-heading"><span className="muted">표시 중 {games.length}개</span><select aria-label="게임 정렬" value={sort} onChange={e => setSort(e.target.value)}><option value="time">플레이시간순</option><option value="name">이름순</option></select></div><div className="tools"><div className="tabs">{[['all', '전체'], ['unplayed', '미실행'], ['short', '1시간 미만']].map(([value, label]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} aria-pressed={filter === value}>{label}</button>)}</div><input aria-label="게임 이름 검색" placeholder="게임 이름 검색" value={search} onChange={e => setSearch(e.target.value)}/></div><div className="table-wrap"><table><thead><tr><th>게임</th><th>플레이 상태</th><th>내 플레이시간</th><th>대부분의 이용자들</th></tr></thead><tbody>{games.map(game => <tr key={game.appid}><td className="library-game-cell"><a className="library-game-link" title={game.name ?? `게임 ${game.appid}`} href={`https://store.steampowered.com/app/${game.appid}/`} target="_blank" rel="noreferrer"><GameBanner appid={game.appid} />{game.name ?? `게임 ${game.appid}`} ↗</a></td><td><span className={minutes(game) === 0 ? 'status unplayed' : 'status'}>{minutes(game) === 0 ? '미실행' : minutes(game) < 60 ? '1시간 미만' : '플레이 기록 있음'}</span></td><td className={playtimeColor(minutes(game), reviewStats[game.appid])}>{number(minutes(game) / 60)} 시간</td><td><ReviewPlaytime value={reviewStats[game.appid]} loading={loadingReview === game.appid} onPrioritize={() => { priorityReview.current = game.appid; }} /> {distributionButton(game)}</td></tr>)}</tbody></table>{games.length === 0 && <p className="no-results">조건에 맞는 게임이 없습니다.</p>}</div></CollapsiblePanel>
         <p className="hint">미실행은 0분, 1시간 미만은 1~59분 기준입니다. 실행시간에는 대기 시간이 포함될 수 있으며 완주 여부를 의미하지 않습니다.</p>
         <p className="hint"><strong>리뷰 작성자 중앙값 집계 방식</strong><br />게임별 최근 Steam 공개 리뷰 최대 500건에서 작성자별 누적 플레이시간을 짧은 순으로 정렬해 가운데 값을 표시합니다. 표본이 짝수면 가운데 두 값의 평균을 사용합니다. 집계 대상은 유효한 플레이시간이 있는 리뷰 작성자입니다.</p>
+        {distributionGame && <PlaytimeDistribution game={distributionGame}
+          stats={reviewStats[distributionGame.appid]} onClose={() => setDistributionGame(null)} />}
       </>}
     </main><footer>Steam Game Analyzer <span>나의 게임을 이해하는 첫걸음 · Steam 비공식 프로젝트</span></footer>
   </div>;
