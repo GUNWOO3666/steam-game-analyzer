@@ -1,6 +1,8 @@
 """Steam 상점 장르 조회 및 SQLite 캐시. 상점 API는 응답이 바뀔 수 있습니다."""
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+from functools import lru_cache
+from html.parser import HTMLParser
 import json
 from pathlib import Path
 import sqlite3
@@ -25,14 +27,47 @@ def fetch_genres(appid: int) -> list[str]:
     return sorted({genre['description'] for genre in genres if isinstance(genre.get('description'), str) and genre['description'].strip()})
 
 
-def fetch_banner(appid: int) -> str | None:
-    url = fetch_store_details(appid).get('header_image')
+def _banner_url(url: str | None, appid: int) -> str | None:
     if not isinstance(url, str):
         return None
     parsed = urlparse(url)
-    if parsed.scheme == 'https' and parsed.hostname and parsed.hostname.endswith('.steamstatic.com'):
+    if (parsed.scheme == 'https' and parsed.hostname and parsed.hostname.endswith('.steamstatic.com')
+            and f'/apps/{appid}/' in parsed.path):
         return url
     return None
+
+
+class StoreBannerParser(HTMLParser):
+    def __init__(self, appid: int):
+        super().__init__()
+        self.appid = appid
+        self.banner = None
+        self.capsule = None
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == 'img' and 'game_header_image_full' in (attributes.get('class') or '').split():
+            self.banner = _banner_url(attributes.get('src'), self.appid)
+        elif tag == 'meta' and attributes.get('property') == 'og:image':
+            self.capsule = _banner_url(attributes.get('content'), self.appid)
+
+
+@lru_cache(maxsize=4096)
+def _fetch_banner(appid: int, _cache_hour: int) -> str | None:
+    try:
+        parser = StoreBannerParser(appid)
+        with urlopen(f'https://store.steampowered.com/app/{appid}/?l=koreana&cc=kr', timeout=4) as response:
+            parser.feed(response.read(1024 * 1024).decode('utf-8', errors='replace'))
+        parser.close()
+        if parser.banner or parser.capsule:
+            return parser.banner or parser.capsule
+    except (OSError, ValueError):
+        pass
+    return _banner_url(fetch_store_details(appid).get('header_image'), appid)
+
+
+def fetch_banner(appid: int) -> str | None:
+    return _fetch_banner(appid, int(time.time() // 3600))
 
 
 class GenreStore:

@@ -250,7 +250,7 @@ function GameBanner({ appid }: { appid: number }) {
     setUrl(null);
     if (url !== defaultUrl) return;
     try {
-      const response = await fetch(`/api/games/${appid}/banner`, { signal: AbortSignal.timeout(10000) });
+      const response = await fetch(`/api/games/${appid}/banner`, { signal: AbortSignal.timeout(15000) });
       if (!response.ok) return;
       const banner = await response.json();
       if (typeof banner.url === 'string' && banner.url !== defaultUrl) setUrl(banner.url);
