@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 import { fetchGenres } from './genre-loader';
+import { MIN_COMPARISONS, MIN_REVIEWS, playtimeEstimate, type ReviewStats } from './playtime-estimate';
 
 
 type Game = { appid: number; name?: string; playtime_forever?: number };
@@ -9,17 +10,12 @@ type Library = { steamid: string; games: Game[]; summary: { game_count: number; 
 const number = (value: number) => value.toLocaleString('ko-KR', { maximumFractionDigits: 1 });
 const minutes = (game: Game) => game.playtime_forever ?? 0;
 
-type ReviewStats = {
-  sample_size: number;
-  median_minutes: number | null;
-  histogram: { start_minutes: number; count: number }[];
-};
-
-function PlaytimeDistribution({ game, stats, onClose, showOwn = true }: {
+function PlaytimeDistribution({ game, stats, onClose, showOwn = true, children }: {
   game: Game;
   stats: ReviewStats | null | undefined;
   onClose: () => void;
   showOwn?: boolean;
+  children?: React.ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -75,6 +71,7 @@ function PlaytimeDistribution({ game, stats, onClose, showOwn = true }: {
           </div>
         </div>
       </>}
+    {children}
   </dialog>;
 }
 
@@ -266,7 +263,121 @@ function GameBanner({ appid }: { appid: number }) {
   </div>;
 }
 
-function StoreSearch({ libraryGames }: { libraryGames: Game[] }) {
+type PredictionLibrary = {
+  libraryGames: Game[];
+  metadata: Record<number, string[]>;
+  genreBusy: boolean;
+  reviewStats: Record<number, ReviewStats | null>;
+};
+
+type PlaytimeComparison = { game: Game; median: number };
+
+function PersonalPlaytime({ appid, target, libraryGames, metadata, genreBusy, reviewStats }: PredictionLibrary & {
+  appid: number;
+  target: ReviewStats;
+}) {
+  const [comparisons, setComparisons] = useState<PlaytimeComparison[]>([]);
+  const [excludedGames, setExcludedGames] = useState<Set<number>>(() => new Set());
+  const [status, setStatus] = useState<'loading' | 'done' | 'error'>('loading');
+  const availableStats = useRef(reviewStats);
+  useEffect(() => { availableStats.current = reviewStats; }, [reviewStats]);
+  const targetMedian = target.median_minutes ?? 0;
+  const canEstimate = target.sample_size >= MIN_REVIEWS && targetMedian > 0 && libraryGames.length > 0;
+
+  useEffect(() => {
+    if (!canEstimate || genreBusy) return;
+    const controller = new AbortController();
+    setComparisons([]);
+    setStatus('loading');
+
+    async function compareGames() {
+      try {
+        let targetGenres = metadata[appid];
+        if (!targetGenres) {
+          const [result] = await fetchGenres([appid], controller.signal, 15000);
+          if (result.status === 'unavailable') throw new Error('장르 조회 실패');
+          targetGenres = result.genres;
+        }
+        const matches = new Set(targetGenres);
+        const candidates = libraryGames.flatMap(game => {
+          if (game.appid === appid || minutes(game) === 0) return [];
+          const genres = new Set(metadata[game.appid] ?? []);
+          const overlap = [...genres].filter(genre => matches.has(genre)).length;
+          return overlap ? [{ game, similarity: overlap / (matches.size + genres.size - overlap) }] : [];
+        }).sort((a, b) => b.similarity - a.similarity || a.game.appid - b.game.appid).slice(0, 8);
+
+        const verifiedGames: PlaytimeComparison[] = [];
+        for (const { game } of candidates) {
+          if (controller.signal.aborted) return;
+          let stats = availableStats.current[game.appid];
+          if (!stats) {
+            try {
+              const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]);
+              const response = await fetch(`/api/games/${game.appid}/review-playtime`, { signal });
+              if (response.ok) stats = await response.json();
+            } catch {
+              continue;
+            }
+          }
+          if (controller.signal.aborted) return;
+          const median = stats?.median_minutes ?? 0;
+          if (stats && stats.sample_size >= MIN_REVIEWS && median > 0) {
+            verifiedGames.push({ game, median });
+            setComparisons([...verifiedGames]);
+          }
+        }
+        if (!controller.signal.aborted) setStatus('done');
+      } catch {
+        if (!controller.signal.aborted) setStatus('error');
+      }
+    }
+
+    void compareGames();
+    return () => controller.abort();
+  }, [appid, canEstimate, genreBusy, libraryGames, metadata]);
+
+  const includedGames = comparisons.filter(({ game }) => !excludedGames.has(game.appid));
+  const estimate = includedGames.length >= MIN_COMPARISONS
+    ? playtimeEstimate(targetMedian, includedGames.map(({ game, median }) => minutes(game) / median))
+    : null;
+  function setGameIncluded(appid: number, included: boolean) {
+    setExcludedGames(previous => {
+      const next = new Set(previous);
+      if (included) next.delete(appid);
+      else next.add(appid);
+      return next;
+    });
+  }
+  const duration = (value: number) => value < 60 ? `${number(Math.max(1, Math.round(value)))}분` : `${number(value / 60)}시간`;
+  return <section className="personal-playtime" aria-label="내 예상 플레이시간">
+    <h3>내 예상 플레이시간</h3>
+    {!libraryGames.length ? <p>Steam 프로필을 먼저 분석하면 내 기록과 비교할 수 있어요.</p>
+      : !canEstimate ? <p>이 게임은 리뷰가 {MIN_REVIEWS}건 미만이거나 중앙값이 0분이라 예상 시간을 표시할 수 없어요.</p>
+      : genreBusy ? <p role="status">라이브러리 장르 확인 중…</p>
+      : comparisons.length > 0 ? <>
+        <div aria-live="polite">
+          {estimate ? <strong>약 {duration(estimate.low)}~{duration(estimate.high)}</strong>
+            : <p>예상 범위를 계산하려면 게임을 최소 {MIN_COMPARISONS}개 선택하세요.</p>}
+          <p>참고 게임 {includedGames.length} / {comparisons.length}개 선택</p>
+        </div>
+        <ul className="playtime-comparisons" aria-label="예상 플레이시간 참고 게임 선택">
+          {comparisons.map(({ game, median }) => <li key={game.appid}>
+            <label>
+              <input type="checkbox" checked={!excludedGames.has(game.appid)}
+                onChange={event => setGameIncluded(game.appid, event.currentTarget.checked)} />
+              <span>{game.name ?? `게임 ${game.appid}`}</span>
+            </label>
+            <small>내 기록 {duration(minutes(game))} · 리뷰 중앙값 {duration(median)}</small>
+          </li>)}
+        </ul>
+        {status === 'loading' && <p role="status">비교할 게임을 더 확인하는 중…</p>}
+      </> : status === 'loading' ? <p role="status">비슷한 장르의 플레이 기록을 비교하는 중…</p>
+      : status === 'error' ? <p>비교에 필요한 장르 정보를 가져오지 못했어요.</p>
+      : <p>비교할 수 있는 게임이 {comparisons.length}개예요. 예상 범위를 계산하려면 최소 {MIN_COMPARISONS}개가 필요해요.</p>}
+  </section>;
+}
+
+function StoreSearch({ libraryGames, metadata, genreBusy, reviewStats }: PredictionLibrary) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Game[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -370,7 +481,10 @@ function StoreSearch({ libraryGames }: { libraryGames: Game[] }) {
     {selected && <PlaytimeDistribution game={owned ?? selected} stats={stats} showOwn={Boolean(owned)} onClose={() => {
       setSelected(null);
       searchInput.current?.focus();
-    }} />}
+    }}>
+      {stats && <PersonalPlaytime appid={selected.appid} target={stats} libraryGames={libraryGames}
+        metadata={metadata} genreBusy={genreBusy} reviewStats={reviewStats} />}
+    </PlaytimeDistribution>}
   </div>;
 }
 
@@ -531,7 +645,7 @@ function App() {
   return <div className="shell">
     <header className="site-header">
       <a className="brand" href="/">◈ <span>Steam Game Analyzer</span></a>
-      <StoreSearch libraryGames={data?.games ?? []} />
+      <StoreSearch libraryGames={data?.games ?? []} metadata={metadata} genreBusy={genreBusy} reviewStats={reviewStats} />
       <span className="badge">라이브러리 분석 · 초기 버전</span>
     </header>
     <main>

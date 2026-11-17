@@ -86,6 +86,14 @@
 .distribution-bin>div{width:100%;background:#5578a6;border-radius:2px 2px 0 0}
 .distribution-marker{position:absolute;top:0;bottom:0;transform:translateX(-50%);pointer-events:none;border-left:4px solid currentColor}
 .distribution-marker.distribution-median{border-left:2px dashed currentColor}
+.personal-playtime{margin-top:16px;padding:14px;border:1px solid #344155;border-radius:8px;background:#101722}
+.personal-playtime h3{margin:0 0 8px;font-size:14px}
+.personal-playtime strong{color:#a0efdf;font-size:20px}
+.personal-playtime p{margin:7px 0 0;color:#b7c8d8;font-size:13px}
+.playtime-comparisons{list-style:none;margin:10px 0 0;padding:0}
+.playtime-comparisons li{display:flex;justify-content:space-between;flex-wrap:wrap;column-gap:12px;row-gap:4px;padding:7px 0;border-top:1px solid #263447;font-size:13px}
+.playtime-comparisons label{display:flex;align-items:center;gap:8px;margin:0;cursor:pointer}
+.playtime-comparisons input{margin:0;accent-color:#74dcc9}
 .site-header{gap:24px}
 .site-header .brand,.site-header .badge{flex-shrink:0}
 .store-search{position:relative;flex:1;min-width:0;max-width:560px;z-index:2}
