@@ -53,6 +53,8 @@
 .ranked-playtime{text-align:right;white-space:nowrap}
 .playtime-high,.playtime-high small{color:#7de6a3}
 .playtime-low,.playtime-low small{color:#ff929b}
+.playtime-unplayed,.playtime-unplayed small{color:#9aa8bc}
+.playtime-very-high,.playtime-very-high small{color:#A64BFF}
 .review-playtime{display:block;max-width:18em;margin-top:5px;color:#9aa8bc;font-size:12px;white-space:normal}
 .review-playtime .muted{font-size:inherit}
 .review-priority{padding:0 4px;border:1px solid #4b6b77;background:#1b303c;color:#a0efdf;font-size:12px;line-height:1}

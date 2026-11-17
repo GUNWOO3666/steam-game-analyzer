@@ -79,8 +79,10 @@ function PlaytimeDistribution({ game, stats, onClose, showOwn = true }: {
 }
 
 function playtimeColor(playtime: number, stats: ReviewStats | null | undefined) {
+  if (playtime === 0) return 'playtime-unplayed';
   const median = stats?.median_minutes;
   if (median == null || median <= 0) return undefined;
+  if (playtime >= median * 5) return 'playtime-very-high';
   if (playtime >= median * 2) return 'playtime-high';
   if (playtime <= median / 2) return 'playtime-low';
   return undefined;
