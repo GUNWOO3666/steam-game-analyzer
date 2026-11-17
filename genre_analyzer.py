@@ -8,14 +8,14 @@ from pathlib import Path
 import sqlite3
 import time
 from urllib.parse import urlencode, urlparse
-from urllib.request import urlopen
+from store_http import StoreUnavailable, open_store
 
 CACHE_PATH = Path(__file__).resolve().parent / 'data' / 'genres.sqlite3'
 
 
 def fetch_store_details(appid: int, **params) -> dict:
     url = 'https://store.steampowered.com/api/appdetails?' + urlencode({'appids': appid, **params})
-    with urlopen(url, timeout=8) as response:
+    with open_store(url, timeout=8) as response:
         item = json.load(response).get(str(appid), {})
     if not item.get('success'):
         raise ValueError('상점 정보 없음')
@@ -56,11 +56,13 @@ class StoreBannerParser(HTMLParser):
 def _fetch_banner(appid: int, _cache_hour: int) -> str | None:
     try:
         parser = StoreBannerParser(appid)
-        with urlopen(f'https://store.steampowered.com/app/{appid}/?l=koreana&cc=kr', timeout=4) as response:
+        with open_store(f'https://store.steampowered.com/app/{appid}/?l=koreana&cc=kr', timeout=4) as response:
             parser.feed(response.read(1024 * 1024).decode('utf-8', errors='replace'))
         parser.close()
         if parser.banner or parser.capsule:
             return parser.banner or parser.capsule
+    except StoreUnavailable:
+        raise
     except (OSError, ValueError):
         pass
     return _banner_url(fetch_store_details(appid).get('header_image'), appid)

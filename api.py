@@ -6,6 +6,7 @@ from genre_analyzer import GenreStore, fetch_banner
 from playtime_stats import review_playtime
 from steam_profile_style import fetch_mini_profile
 from steam_store import library_prices, search_games
+from store_http import StoreUnavailable
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -113,6 +114,9 @@ def game_banner(appid: int) -> dict:
         raise HTTPException(status_code=400, detail='게임 번호는 유효한 양의 정수여야 합니다.')
     try:
         return {'url': fetch_banner(appid)}
+    except StoreUnavailable as exc:
+        raise HTTPException(status_code=503, detail='Steam 상점에서 요청을 거부했습니다. 잠시 후 다시 시도하세요.',
+                            headers={'Retry-After': str(exc.retry_after)}) from None
     except (OSError, ValueError, TypeError, AttributeError):
         raise HTTPException(status_code=502, detail='Steam 상점 배너 정보를 가져오지 못했습니다.') from None
 
@@ -124,6 +128,9 @@ def game_search(q: str = Query(min_length=1, max_length=100)) -> dict:
         raise HTTPException(status_code=400, detail='게임 이름을 입력하세요.')
     try:
         return {'games': search_games(term)}
+    except StoreUnavailable as exc:
+        raise HTTPException(status_code=503, detail='Steam 상점에서 요청을 거부했습니다. 잠시 후 다시 검색하세요.',
+                            headers={'Retry-After': str(exc.retry_after)}) from None
     except (OSError, ValueError):
         raise HTTPException(status_code=502, detail='Steam 상점 검색에 실패했습니다.') from None
 

@@ -292,6 +292,10 @@ function StoreSearch({ libraryGames }: { libraryGames: Game[] }) {
     try {
       const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]);
       const response = await fetch(`/api/games/search?${new URLSearchParams({ q: term })}`, { signal });
+      if (response.status === 503) {
+        if (!controller.signal.aborted) setError('Steam 상점에서 요청을 거부했습니다. 잠시 후 다시 검색하세요.');
+        return;
+      }
       if (!response.ok) throw new Error();
       const result = await response.json();
       if (!controller.signal.aborted) setResults(result.games);

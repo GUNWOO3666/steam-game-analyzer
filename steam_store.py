@@ -5,9 +5,9 @@ from functools import lru_cache
 from threading import Lock
 import time
 from urllib.parse import urlencode
-from urllib.request import urlopen
 
 from genre_analyzer import fetch_store_details
+from store_http import open_store
 
 _price_slots = ThreadPoolExecutor(max_workers=2)
 _price_lock = Lock()
@@ -47,7 +47,7 @@ def library_prices(appids: list[int]) -> dict:
 
 def search_games(term: str) -> list[dict]:
     query = urlencode({'term': term, 'l': 'koreana', 'cc': 'KR'})
-    with urlopen(f'https://store.steampowered.com/api/storesearch/?{query}', timeout=8) as response:
+    with open_store(f'https://store.steampowered.com/api/storesearch/?{query}', timeout=8) as response:
         payload = json.load(response)
     items = payload.get('items') if isinstance(payload, dict) else None
     if not isinstance(items, list):
