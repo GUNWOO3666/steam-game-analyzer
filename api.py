@@ -1,5 +1,6 @@
 """로컬 실행: python -m uvicorn api:app --reload"""
 import os
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 from genre_analyzer import GenreStore, fetch_banner
@@ -11,6 +12,7 @@ from store_http import StoreUnavailable
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from steam_analyzer import SteamClient, SteamError, parse_profile
 
@@ -166,3 +168,9 @@ def genres(request: GenreRequest) -> dict:
     if any(appid <= 0 or appid > 4294967295 for appid in request.appids):
         raise HTTPException(status_code=400, detail='게임 번호는 유효한 양의 정수여야 합니다.')
     return {'games': GenreStore().batch(request.appids)}
+
+
+# API routes take priority over the compiled frontend.
+frontend_dist = Path(__file__).resolve().parent / 'frontend' / 'dist'
+if (frontend_dist / 'index.html').is_file():
+    app.mount('/', StaticFiles(directory=frontend_dist, html=True), name='frontend')
