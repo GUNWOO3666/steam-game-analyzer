@@ -195,6 +195,44 @@ Release 압축본도 프로젝트 루트에서 위의 로컬 실행 또는 Docke
 
 Steam 외부 서비스의 응답 상태에 따라 검색, 이미지, 가격 및 리뷰 조회가 지연되거나 실패할 수 있습니다. 상점에서 요청을 거부하면 앱은 대기 시간을 적용합니다. 잠시 후 검색을 다시 실행하거나 화면을 새로고침해 재조회할 수 있습니다.
 
+## 참고자료 및 사용 라이브러리
+
+### 데이터와 API
+
+| 출처 | 사용 범위 |
+|---|---|
+| [Steam ISteamUser](https://partner.steamgames.com/doc/webapi/isteamuser) | 프로필 URL 해석, 닉네임·아바타·가입일 조회 |
+| [Steam IPlayerService](https://partner.steamgames.com/doc/webapi/iplayerservice) | 보유 게임, 누적 플레이시간, Steam 레벨 조회 |
+| [Steam IUserReviewsService](https://partner.steamgames.com/doc/webapi/IUserReviewsService) | 최근 공개 리뷰 작성자의 플레이시간 표본 수집 |
+| [Steam 상점](https://store.steampowered.com/) | 게임 검색, 장르, 한국 판매가, 배너 이미지 조회 |
+| [Steam 커뮤니티](https://steamcommunity.com/) | 공개 미니 프로필 배경과 대표 배지 조회 |
+
+상점 검색·상세 정보와 미니 프로필 HTML은 공개 응답을 사용하며, 제공 형식 변경이나 요청 제한의 영향을 받을 수 있습니다. 게임 이미지와 프로필 꾸미기 요소의 권리는 각 권리자에게 있습니다.
+
+### 라이브러리와 개발 도구
+
+| 라이브러리·도구 | 사용 범위 |
+|---|---|
+| [FastAPI](https://fastapi.tiangolo.com/) | 백엔드 API, 응답 처리, 정적 파일 제공 |
+| [Uvicorn](https://github.com/encode/uvicorn) | ASGI 서버 실행 |
+| [Pydantic](https://docs.pydantic.dev/) | API 입력 데이터 검증 |
+| [python-dotenv](https://bbc2.github.io/python-dotenv/) | `.env` 환경변수 로딩 |
+| [HTTPX](https://www.python-httpx.org/) | FastAPI TestClient를 사용하는 API 테스트 |
+| [React / React DOM](https://react.dev/) | 화면 구성과 상태 관리 |
+| [TypeScript](https://www.typescriptlang.org/docs/) | 프론트엔드 타입 검사 |
+| [Vite](https://v6.vite.dev/) | 개발 서버와 프론트엔드 빌드 |
+| [pnpm](https://pnpm.io/) | 프론트엔드 의존성 설치 |
+| [Python 표준 라이브러리](https://docs.python.org/3/library/) | HTTP 요청, HTML 파싱, SQLite 캐시, 중앙값 계산, 단위 테스트 |
+| [Docker](https://docs.docker.com/) / [Amazon EC2](https://docs.aws.amazon.com/ec2/) | 실행 환경 구성과 서버 배포 |
+
+설치 의존성은 `requirements.txt`, `requirements-dev.txt`, `frontend/package.json`, `frontend/pnpm-lock.yaml`에 기록되어 있습니다. React 타입 정의에는 `@types/react`, `@types/react-dom`을 사용합니다.
+
+### 구현 범위와 개발 지원
+
+이 저장소는 외부 API 데이터를 연결하는 코드, 장르별 집계, 리뷰 중앙값과 히스토그램, 개인별 플레이시간 추정, 참고 게임 선택 및 화면 구성을 구현합니다. 히스토그램은 React와 CSS로 그리며, 예상 플레이시간은 위의 집계 기준에 설명한 비율·백분위 계산을 사용합니다.
+
+개발 과정에서 OpenAI Codex를 활용해 코드 작성·수정, 오류 확인, 테스트와 문서 작성을 지원받았습니다.
+
 ## 라이선스
 
 이 프로젝트의 소스코드는 [MIT License](LICENSE)를 따릅니다.
