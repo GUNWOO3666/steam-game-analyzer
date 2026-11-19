@@ -646,7 +646,6 @@ function App() {
     <header className="site-header">
       <a className="brand" href="/">◈ <span>Steam Game Analyzer</span></a>
       <StoreSearch libraryGames={data?.games ?? []} metadata={metadata} genreBusy={genreBusy} reviewStats={reviewStats} />
-      <span className="badge">라이브러리 분석 · 초기 버전</span>
     </header>
     <main>
       <section className="intro">
